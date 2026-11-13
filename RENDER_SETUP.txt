@@ -1,0 +1,43 @@
+MUSA & SONS MOVIE LIBRARY — RENDER SETUP
+
+1) Upload these three files to the same GitHub repository folder:
+   - index.html
+   - server.js
+   - package.json
+
+2) Render service settings:
+   - Service type: Web Service
+   - Runtime: Node
+   - Build command: npm install
+   - Start command: npm start
+   - Node version: 20 or newer
+
+3) Add these Environment Variables in Render (Dashboard → your service → Environment):
+   FIREBASE_SERVICE_ACCOUNT_JSON = the COMPLETE Firebase service-account JSON contents, pasted as one JSON value
+   MARZPAY_API_KEY = your real MarzPay API key
+   MARZPAY_API_SECRET = your real MarzPay API secret
+   MEDIA_TOKEN_SECRET = a long random secret (at least 32 random characters)
+
+   Do not put any of these secrets in GitHub or index.html. If a key was ever committed publicly, rotate it.
+
+4) Firebase notes:
+   - The service-account JSON must belong to the same Firebase project used by index.html (toyota-earn-f27fc).
+   - Enable Google sign-in or Email link sign-in in Firebase Authentication. The secure payment API requires a Firebase ID token; local phone/password-only website sessions do not provide one.
+   - The backend reads movie data from Firestore: appData/musaSonsMovieLibraryV10.
+
+5) MarzPay:
+   - Set the MarzPay account to the intended live mode only after testing.
+   - Collection requests use Uganda Mobile Money (MTN/Airtel auto-detection) and the admin-set movie price.
+   - MarzPay's published Uganda collection amount range is UGX 500–10,000,000. The admin movie-price input now has a UGX 500 minimum.
+   - Callback URL is generated from the Render service URL at /api/marzpay/callback.
+
+6) Important media protection limitation:
+   - Direct HTTPS MP4/WebM files are streamed through the authenticated backend after payment.
+   - YouTube embeds and HLS (.m3u8) sources cannot be fully protected by this simple proxy. Do not use public YouTube/HLS URLs for premium movies if you need strict access control. Host premium video files on a private/protected storage origin and use direct HTTPS MP4/WebM URLs.
+
+7) Test after deployment:
+   - Open https://YOUR-RENDER-SERVICE.onrender.com/api/health (should return ok:true).
+   - Sign in using Google or Email link.
+   - Mark a test movie Premium and set a price of at least UGX 500.
+   - Try playing it, enter a test MTN/Airtel number, and approve the prompt on the phone.
+   - Confirm that access is granted only after MarzPay reports the matching amount as successful.
