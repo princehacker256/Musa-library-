@@ -392,11 +392,6 @@ button:not(:disabled):active{transform:scale(.96);transition-duration:.04s}
 .vj-play-btn{flex:1;background:var(--brand);color:#0a0908;padding:11px 0;border-radius:10px;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px;font-family:'Space Grotesk',sans-serif;border:none;cursor:pointer}
 .vj-dl-btn{flex:1;background:var(--surface-2);color:#fff;padding:11px 0;border-radius:10px;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px;font-family:'Space Grotesk',sans-serif;border:1px solid var(--line);cursor:pointer;text-decoration:none}
 .vj-dl-btn:active{background:var(--brand-soft);color:var(--brand)}
-.premium-ribbon{position:absolute;left:8px;bottom:8px;background:linear-gradient(135deg,#f4c76b,#c78b2d);color:#211606;padding:5px 8px;border-radius:7px;font-size:9px;font-weight:900;letter-spacing:.5px;z-index:2;box-shadow:0 4px 12px rgba(0,0,0,.25)}
-.premium-price{color:#f4c76b;font-weight:900}
-.premium-lock-note{margin:12px 0;padding:13px 15px;background:rgba(244,199,107,.09);border:1px solid rgba(244,199,107,.25);border-radius:13px;color:#f5d99d;font-size:12px;line-height:1.5}
-.premium-pay-btn{background:linear-gradient(135deg,#f4c76b,#c78b2d)!important;color:#211606!important}
-
 
 .fav-btn{width:100%;padding:15px;background:rgba(229,72,77,.12);color:var(--rose);border:1px solid rgba(229,72,77,.3);border-radius:14px;font-weight:800;font-size:13.5px;display:flex;align-items:center;justify-content:center;gap:9px;margin-bottom:20px}
 .fav-btn.active{background:rgba(229,72,77,.2);border-color:rgba(229,72,77,.5)}
@@ -1292,15 +1287,22 @@ body{background:radial-gradient(ellipse at 50% -15%,rgba(38,111,130,.18),transpa
       <small style="display:block;color:var(--ink-3);font-size:11px;line-height:1.55;margin-top:8px">Paste a direct MP4, WebM, OGG or HLS (.m3u8) link, or a YouTube video link. The link is saved with this movie and opens in the website player when viewers tap Play. Use a video you own or have permission to stream. A poster/image URL will not play as a movie.</small>
     </div>
 
+    <div class="form-field" style="padding:12px;background:rgba(228,176,74,.07);border:1px solid rgba(228,176,74,.22);border-radius:12px;margin-bottom:12px">
+      <label style="display:flex;align-items:center;gap:9px;font-size:13px;color:#fff;font-weight:800;cursor:pointer">
+        <input type="checkbox" id="mvPremium" style="width:18px;height:18px;accent-color:var(--brand)" /> Make this movie PREMIUM (viewers must pay)
+      </label>
+      <div style="margin-top:10px">
+        <label class="field-label">Premium price (UGX)</label>
+        <input class="admin-input" id="mvPremiumPrice" type="number" min="1" step="1" value="1000" placeholder="1000" />
+        <small style="display:block;color:var(--ink-3);font-size:10px;margin-top:5px">Set the price for this movie. This setting labels the movie; payment must be verified by the secure payment backend before playback is enabled.</small>
+      </div>
+    </div>
     <div class="admin-chips" style="margin-bottom:14px">
       <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#fff;font-weight:700;padding:8px 14px;background:var(--surface);border:1px solid var(--line);border-radius:10px;cursor:pointer">
         <input type="checkbox" id="mvFeatured" /> Featured
       </label>
       <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#fff;font-weight:700;padding:8px 14px;background:var(--surface);border:1px solid var(--line);border-radius:10px;cursor:pointer">
         <input type="checkbox" id="mvTrending" /> Trending
-      </label>
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#f4c76b;font-weight:800;padding:8px 14px;background:rgba(244,199,107,.08);border:1px solid rgba(244,199,107,.28);border-radius:10px;cursor:pointer">
-        <input type="checkbox" id="mvPremium" /> Premium · UGX 1,000
       </label>
     </div>
 
@@ -1414,14 +1416,6 @@ const ADMIN_PHONE = '707256946';
 const ADMIN_PASS = '2005';
 const ADMIN_USERNAME = 'MUSA';
 
-// Premium payments are processed by your own server. Never put MarzPay
-// API keys/secrets in this public HTML file.
-const PREMIUM_API_BASE = '/api';
-const PREMIUM_MOVIE_PRICE = 1000;
-let pendingPremiumMovieId = null;
-let pendingPremiumVjIndex = 0;
-let premiumPaymentBusy = false;
-
 const GENRES = ['Action','Comedy','Drama','Thriller','Horror','Sci-Fi','Romance','Adventure','Animation','Crime','Documentary','Nigerian','Korean','Indian'];
 
 const IMG_FALLBACK = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='450'%3E%3Crect width='300' height='450' fill='%2316151a'/%3E%3Ctext x='150' y='230' fill='%234a463f' font-family='sans-serif' font-size='14' text-anchor='middle'%3ENo Poster%3C/text%3E%3C/svg%3E";
@@ -1508,6 +1502,7 @@ const SS_CURRENT = 'musasons_current';
 
 let currentUser = null;
 let currentViewingMovieId = null;
+let currentVideoMovieId = null;
 let currentVideoUrl = '';
 let currentVideoName = '';
 let currentGenre = 'all';
@@ -1716,6 +1711,59 @@ function getYouTubeId(url) {
 }
 
 /* ============================================================
+   PREMIUM ACCESS GATE
+   IMPORTANT: Configure PREMIUM_API_BASE with your Render backend URL.
+   The backend must authenticate the signed-in customer, verify payment
+   with the payment provider, and serve protected/signed media URLs.
+   Never treat a browser-side flag or payment redirect as proof of payment.
+   ============================================================ */
+const PREMIUM_API_BASE = ''; // Example: https://your-service.onrender.com
+
+async function ensurePremiumMovieAccess(movie, action) {
+  if (!movie || !movie.premium) return true;
+
+  if (!PREMIUM_API_BASE) {
+    showToast('This is a PREMIUM movie. Secure payments are not connected yet.', 'warning');
+    return false; // Fail closed: never play/download premium media without server verification.
+  }
+
+  try {
+    const base = PREMIUM_API_BASE.replace(/\/$/, '');
+    const accessResponse = await fetch(base + '/api/premium/access', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ movieId: String(movie.id), action })
+    });
+    const access = await accessResponse.json().catch(() => ({}));
+
+    if (accessResponse.ok && access.allowed === true) return true;
+
+    // No verified entitlement: ask the server to create/reuse a payment request.
+    const paymentResponse = await fetch(base + '/api/payments/create', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ movieId: String(movie.id), action })
+    });
+    const payment = await paymentResponse.json().catch(() => ({}));
+    if (!paymentResponse.ok) throw new Error(payment.message || 'Could not start payment');
+
+    if (payment.checkoutUrl && /^https:\/\//i.test(payment.checkoutUrl)) {
+      showToast('Complete payment to unlock ' + movie.title, 'info');
+      window.location.href = payment.checkoutUrl;
+      return false;
+    }
+    showToast(payment.message || 'Payment is required before accessing this movie.', 'warning');
+    return false;
+  } catch (error) {
+    console.error('Premium access verification failed:', error);
+    showToast('Could not verify payment. Please try again.', 'error');
+    return false;
+  }
+}
+
+/* ============================================================
    VIDEO PLAYER & DOWNLOAD
    ============================================================ */
 function playFirstVj(movieId){
@@ -1727,128 +1775,16 @@ function playFirstVj(movieId){
   playMovie(movieId, 0);
 }
 
-function playMovie(movieId, vjIndex){
-  const m = STATE.movies.find(x => x.id === movieId);
-  if (m && m.isPremium && !hasPremiumAccess(movieId)) {
-    pendingPremiumMovieId = movieId;
-    pendingPremiumVjIndex = vjIndex;
-    const phone = document.getElementById('premiumPhoneInput');
-    if (phone && currentUser && currentUser.phone && !String(currentUser.phone).startsWith('google_')) phone.value = currentUser.phone;
-    document.getElementById('premiumPaymentMessage').textContent =
-      'Pay UGX 1,000 once to unlock "' + m.title + '" for your account.';
-    document.getElementById('premiumPaymentStatus').textContent = '';
-    document.getElementById('premiumPayButton').disabled = false;
-    document.getElementById('premiumPayButton').innerHTML = '<i class="fas fa-mobile-alt"></i> Pay UGX 1,000';
-    openModal('premiumPaymentModal');
-    return;
-  }
-  return launchMoviePlayer(movieId, vjIndex);
-}
-
-
-function hasPremiumAccess(movieId){
-  return !!(currentUser && currentUser.premiumMovieAccess &&
-    currentUser.premiumMovieAccess[String(movieId)] === true);
-}
-
-function closePremiumPayment(){
-  closeModal('premiumPaymentModal');
-  pendingPremiumMovieId = null;
-}
-
-async function startPremiumPayment(){
-  if (premiumPaymentBusy) return;
-  if (!currentUser) return showToast('Please sign in first', 'error');
-  const movieId = pendingPremiumMovieId;
-  const movie = STATE.movies.find(x => x.id === movieId);
-  const phone = document.getElementById('premiumPhoneInput').value.trim();
-  const status = document.getElementById('premiumPaymentStatus');
-  const button = document.getElementById('premiumPayButton');
-  if (!movie || !movie.isPremium) return showToast('Premium movie not found', 'error');
-  if (!phone) { status.textContent = 'Enter the Mobile Money number to charge.'; return; }
-
-  premiumPaymentBusy = true;
-  button.disabled = true;
-  button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Connecting...';
-  status.textContent = 'Requesting secure payment...';
-  try {
-    // The server must create a MarzPay collect request, store its reference,
-    // and associate it with the signed-in user and movie. Do not trust browser claims.
-    const firebaseAuthUser = window.firebaseDB && window.firebaseDB.auth && window.firebaseDB.auth.currentUser;
-    if (!firebaseAuthUser) {
-      throw new Error('For secure premium payments, sign in with Google or email link first. Phone/password accounts need to be upgraded to Firebase Authentication.');
-    }
-    const firebaseIdToken = await firebaseAuthUser.getIdToken();
-    const response = await fetch(PREMIUM_API_BASE + '/premium/checkout', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json', 'Authorization':'Bearer ' + firebaseIdToken},
-      credentials: 'include',
-      body: JSON.stringify({
-        movieId: String(movieId),
-        movieTitle: movie.title,
-        amount: PREMIUM_MOVIE_PRICE,
-        currency: 'UGX',
-        country: 'UG',
-        phone: phone,
-        userId: String(currentUser.id)
-      })
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok || !data.reference) {
-      throw new Error(data.message || 'Payment service is not configured. Please contact the administrator.');
-    }
-    status.textContent = 'Approve the Mobile Money prompt on your phone. Waiting for confirmation...';
-    button.innerHTML = '<i class="fas fa-clock"></i> Waiting for payment';
-    const paid = await pollPremiumPayment(data.reference);
-    if (!paid) throw new Error('Payment was not confirmed. If money was deducted, contact support with reference ' + data.reference);
-    currentUser.premiumMovieAccess = currentUser.premiumMovieAccess || {};
-    currentUser.premiumMovieAccess[String(movieId)] = true;
-    sessionSave(SS_CURRENT, currentUser);
-    // Server response is authoritative; client-side access is only a convenience cache.
-    closeModal('premiumPaymentModal');
-    showToast('Payment confirmed. Movie unlocked!', 'success');
-    const vjIndex = pendingPremiumVjIndex;
-    pendingPremiumMovieId = null;
-    launchMoviePlayer(movieId, vjIndex);
-  } catch (error) {
-    status.textContent = error.message || 'Payment could not be completed.';
-    button.disabled = false;
-    button.innerHTML = '<i class="fas fa-redo"></i> Try Again';
-  } finally {
-    premiumPaymentBusy = false;
-  }
-}
-
-async function pollPremiumPayment(reference){
-  const deadline = Date.now() + 180000;
-  while (Date.now() < deadline) {
-    await new Promise(resolve => setTimeout(resolve, 4000));
-    const firebaseAuthUser = window.firebaseDB && window.firebaseDB.auth && window.firebaseDB.auth.currentUser;
-    if (!firebaseAuthUser) throw new Error('Your secure sign-in session expired. Please sign in again.');
-    const firebaseIdToken = await firebaseAuthUser.getIdToken();
-    const response = await fetch(PREMIUM_API_BASE + '/premium/status?reference=' + encodeURIComponent(reference), {
-      method:'GET',
-      headers:{'Authorization':'Bearer ' + firebaseIdToken},
-      credentials:'include',
-      cache:'no-store'
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.message || 'Unable to verify payment status.');
-    if (data.status === 'paid' && data.accessGranted === true) return true;
-    if (data.status === 'failed' || data.status === 'cancelled' || data.status === 'expired') {
-      throw new Error('Payment ' + data.status + '. No movie access was granted.');
-    }
-  }
-  throw new Error('Payment is still pending. Please check your payment status before trying again.');
-}
-
-function launchMoviePlayer(movieId, vjIndex){
+async function playMovie(movieId, vjIndex){
   const m = STATE.movies.find(x => x.id === movieId);
   if (!m || !m.vjLinks || !m.vjLinks[vjIndex]) {
     showToast('Video not available', 'error');
     return;
   }
   
+  // Premium playback is denied unless the backend confirms a completed payment.
+  if (!(await ensurePremiumMovieAccess(m, 'watch'))) return;
+
   const vj = m.vjLinks[vjIndex];
   const url = vj.playUrl || vj.url;
   if (!url) return showToast('No video URL for this VJ version', 'error');
@@ -1894,6 +1830,7 @@ function launchMoviePlayer(movieId, vjIndex){
     
     currentVideoUrl = vj.downloadUrl || url;
     currentVideoName = `${m.title} - ${vj.vj || 'VJ'}.mp4`;
+    currentVideoMovieId = m.id;
     footer.style.display = '';
   }
 
@@ -1911,6 +1848,9 @@ function closeVideoPlayer(){
   if (yt) { yt.src = 'about:blank'; yt.style.display = 'none'; }
 
   document.getElementById('vpFooter').style.display = '';
+  currentVideoMovieId = null;
+  currentVideoUrl = '';
+  currentVideoName = '';
   closeModal('videoPlayerModal');
 }
 
@@ -1953,20 +1893,19 @@ async function downloadVideo(url, filename) {
   }
 }
 
-function downloadCurrentVideo() {
+async function downloadCurrentVideo() {
   if (!currentVideoUrl) {
     return showToast('Downloads are not available for YouTube links', 'warning');
   }
+  const movie = STATE.movies.find(x => String(x.id) === String(currentVideoMovieId));
+  if (movie && !(await ensurePremiumMovieAccess(movie, 'download'))) return;
   downloadVideo(currentVideoUrl, currentVideoName);
 }
 
-function downloadFromCard(url, filename, movieId) {
-  const movie = STATE.movies.find(x => x.id === movieId);
-  if (movie && movie.isPremium && !hasPremiumAccess(movieId)) {
-    playMovie(movieId, 0);
-    showToast('Unlock this premium movie before downloading', 'warning');
-    return;
-  }
+async function downloadFromCard(url, filename, movieId) {
+  const movie = STATE.movies.find(x => String(x.id) === String(movieId));
+  if (!movie) return showToast('Movie not found. Refresh and try again.', 'error');
+  if (!(await ensurePremiumMovieAccess(movie, 'download'))) return;
   downloadVideo(url, filename);
 }
 
@@ -2494,9 +2433,9 @@ function movieCardHtml(m){
   return `
     <div class="movie-card" onclick="openMovieDetail(${m.id})">
       <div class="movie-poster">
-        ${m.isPremium ? '<span class="premium-ribbon"><i class="fas fa-lock"></i> PREMIUM · UGX 1,000</span>' : ''}
         <img src="${esc(m.poster)}" alt="${esc(m.title)}" loading="lazy" onerror="this.src='${IMG_FALLBACK}'" />
         <div class="movie-badge">HD</div>
+        ${m.premium ? '<div style="position:absolute;left:7px;top:34px;background:rgba(228,176,74,.96);color:#17120a;padding:4px 7px;border-radius:6px;font-size:9px;font-weight:900;z-index:2"><i class="fas fa-lock"></i> PREMIUM</div>' : ''}
         ${m.rating ? `<div class="movie-rating"><i class="fas fa-star"></i> ${m.rating}</div>` : ''}
         <button class="movie-fav ${isFav?'active':''}" onclick="event.stopPropagation();toggleFavorite(${m.id})"><i class="fas fa-heart"></i></button>
       </div>
@@ -2581,12 +2520,8 @@ function openMovieDetail(id){
   if (m.rating) tags.push(`<span class="detail-tag gold"><i class="fas fa-star"></i>${m.rating}/10</span>`);
   if (m.duration) tags.push(`<span class="detail-tag"><i class="fas fa-clock"></i>${esc(m.duration)}</span>`);
   if (m.country) tags.push(`<span class="detail-tag">${esc(m.country)}</span>`);
-  if (m.isPremium) tags.push('<span class="detail-tag gold"><i class="fas fa-lock"></i> PREMIUM · UGX 1,000</span>');
+  if (m.premium) tags.push(`<span class="detail-tag gold"><i class="fas fa-lock"></i> PREMIUM · UGX ${Number(m.premiumPrice)||1000}</span>`);
   document.getElementById('detailTags').innerHTML = tags.join('');
-  const premiumNote = m.isPremium
-    ? '<div class="premium-lock-note"><i class="fas fa-shield-alt"></i> This is a pay-per-view movie. A one-time payment of <strong>UGX 1,000</strong> unlocks this movie for your account after the payment provider confirms it.</div>'
-    : '';
-  document.getElementById('detailPremiumNote').innerHTML = premiumNote;
 
   const vjList = document.getElementById('detailVjList');
   if (!m.vjLinks || m.vjLinks.length === 0) {
@@ -2787,6 +2722,8 @@ function adminSaveMovie(){
   const description = document.getElementById('mvDesc').value.trim();
   const featured = document.getElementById('mvFeatured').checked;
   const trending = document.getElementById('mvTrending').checked;
+  const premium = document.getElementById('mvPremium').checked;
+  const premiumPrice = Math.max(1, Math.floor(Number(document.getElementById('mvPremiumPrice').value) || 1000));
   const vjLinks = getVjRows();
   const msg = document.getElementById('movieFormMsg');
 
@@ -2819,13 +2756,15 @@ function adminSaveMovie(){
       movie.title = title; movie.year = year; movie.genre = genre; movie.rating = rating;
       movie.duration = duration; movie.country = country; movie.poster = poster;
       movie.backdrop = backdrop; movie.previewClip = previewClip; movie.description = description;
-      movie.featured = featured; movie.trending = trending; movie.isPremium = isPremium; movie.vjLinks = vjLinks;
+      movie.featured = featured; movie.trending = trending; movie.vjLinks = vjLinks;
+      movie.premium = premium; movie.premiumPrice = premium ? premiumPrice : 0;
     }
     showToast('Movie updated', 'success');
   } else {
     const newMovie = {
       id: Date.now(), title, year, genre, rating, duration, country, poster,
-      backdrop, previewClip, description, featured, trending, isPremium, vjLinks,
+      backdrop, previewClip, description, featured, trending, vjLinks,
+      premium, premiumPrice: premium ? premiumPrice : 0,
       dateAdded: new Date().toISOString(), createdBy: currentUser.phone
     };
     STATE.movies.push(newMovie);
@@ -2850,6 +2789,8 @@ function adminCancelMovieEdit(){
   });
   document.getElementById('mvFeatured').checked = false;
   document.getElementById('mvTrending').checked = false;
+  document.getElementById('mvPremium').checked = false;
+  document.getElementById('mvPremiumPrice').value = '1000';
   clearVjRows();
   document.getElementById('movieFormTitle').textContent = 'Add New Movie';
   document.getElementById('movieSaveLabel').textContent = 'Add Movie';
@@ -2877,7 +2818,8 @@ function adminRenderMovieList(){
         <div class="ali-meta">
           ${m.year || '—'} · ${esc(m.genre || '—')} · ${m.rating || '—'}★<br>
           <strong>${(m.vjLinks || []).length} VJ${(m.vjLinks || []).length === 1 ? '' : 's'}</strong>
-          ${m.featured ? ' · ⭐ Featured' : ''}${m.trending ? ' · 🔥 Trending' : ''}${m.isPremium ? ' · <strong>🔒 PREMIUM · UGX 1,000</strong>' : ' · Free'}
+          ${m.premium ? ` · 🔒 PREMIUM (UGX ${Number(m.premiumPrice)||1000})` : ' · Free'}
+          ${m.featured ? ' · ⭐ Featured' : ''}${m.trending ? ' · 🔥 Trending' : ''}
         </div>
       </div>
       ${currentUser && currentUser.isMovieManager ? '' : `<div class="ali-actions">
@@ -2906,6 +2848,8 @@ function adminEditMovie(id){
   document.getElementById('mvDesc').value = m.description || '';
   document.getElementById('mvFeatured').checked = !!m.featured;
   document.getElementById('mvTrending').checked = !!m.trending;
+  document.getElementById('mvPremium').checked = !!m.premium;
+  document.getElementById('mvPremiumPrice').value = String(m.premiumPrice || 1000);
   clearVjRows();
   setupAdminVjRow((m.vjLinks && m.vjLinks.length > 0) ? m.vjLinks[0] : {});
   document.getElementById('movieFormTitle').textContent = 'Edit Movie';
