@@ -877,6 +877,20 @@ body{background:radial-gradient(ellipse at 50% -15%,rgba(38,111,130,.18),transpa
 </div>
 
 <!-- VIDEO PLAYER MODAL -->
+<div class="overlay" id="premiumPaymentModal">
+  <div class="modal-box">
+    <div class="modal-icon" style="background:rgba(228,176,74,.12);color:var(--brand)"><i class="fas fa-lock"></i></div>
+    <div class="mb-title">Unlock Premium Movie</div>
+    <div class="mb-title" id="premiumPaymentTitle" style="font-size:15px">Movie title</div>
+    <div class="mb-msg" id="premiumPaymentMessage">Pay with Mobile Money to unlock this movie.</div>
+    <label class="field-label" for="premiumPhoneInput">MTN or Airtel Mobile Money number</label>
+    <input class="admin-input" id="premiumPhoneInput" type="tel" inputmode="tel" placeholder="e.g. 0700000000" autocomplete="tel">
+    <div id="premiumPaymentStatus" style="font-size:12px;color:var(--ink-2);text-align:center;margin:12px 0;min-height:36px"></div>
+    <button class="mb-btn" id="premiumPayButton" onclick="startPremiumPayment()">Request payment</button>
+    <button class="mb-btn" style="background:var(--surface-2);color:#fff" onclick="closePremiumPayment()">Cancel</button>
+  </div>
+</div>
+
 <div class="overlay" id="videoPlayerModal">
   <div class="video-player-box">
     <div class="vp-header">
@@ -1293,7 +1307,7 @@ body{background:radial-gradient(ellipse at 50% -15%,rgba(38,111,130,.18),transpa
       </label>
       <div style="margin-top:10px">
         <label class="field-label">Premium price (UGX)</label>
-        <input class="admin-input" id="mvPremiumPrice" type="number" min="1" step="1" value="1000" placeholder="1000" />
+        <input class="admin-input" id="mvPremiumPrice" type="number" min="500" step="1" value="1000" placeholder="1000" />
         <small style="display:block;color:var(--ink-3);font-size:10px;margin-top:5px">Set the price for this movie. This setting labels the movie; payment must be verified by the secure payment backend before playback is enabled.</small>
       </div>
     </div>
@@ -1717,50 +1731,131 @@ function getYouTubeId(url) {
    with the payment provider, and serve protected/signed media URLs.
    Never treat a browser-side flag or payment redirect as proof of payment.
    ============================================================ */
-const PREMIUM_API_BASE = ''; // Example: https://your-service.onrender.com
+const PREMIUM_API_BASE = ''; // Leave blank when this website and API run on the same Render Web Service
+let pendingPremiumMovie = null;
+let pendingPremiumAction = null;
+let pendingPremiumResume = null;
+let premiumPaymentBusy = false;
 
-async function ensurePremiumMovieAccess(movie, action) {
-  if (!movie || !movie.premium) return true;
-
-  if (!PREMIUM_API_BASE) {
-    showToast('This is a PREMIUM movie. Secure payments are not connected yet.', 'warning');
-    return false; // Fail closed: never play/download premium media without server verification.
+async function getPremiumAuthHeaders() {
+  const auth = window.firebaseDB && window.firebaseDB.auth;
+  const firebaseUser = auth && auth.currentUser;
+  if (!firebaseUser) {
+    throw new Error('For secure premium purchases, sign in using Google or the email sign-in link first.');
   }
+  const token = await firebaseUser.getIdToken();
+  return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token };
+}
 
+function openPremiumPayment(movie, action, resume) {
+  pendingPremiumMovie = movie;
+  pendingPremiumAction = action;
+  pendingPremiumResume = typeof resume === 'function' ? resume : null;
+  const amount = Math.max(500, Math.floor(Number(movie.premiumPrice) || 1000));
+  document.getElementById('premiumPaymentTitle').textContent = movie.title || 'Premium movie';
+  document.getElementById('premiumPaymentMessage').textContent = 'Pay UGX ' + amount.toLocaleString('en-UG') + ' using MTN or Airtel Mobile Money to unlock this movie.';
+  document.getElementById('premiumPayButton').textContent = 'Request UGX ' + amount.toLocaleString('en-UG') + ' payment';
+  document.getElementById('premiumPaymentStatus').textContent = 'Enter the phone number that should receive the Mobile Money prompt.';
+  document.getElementById('premiumPhoneInput').value = currentUser && /^0\d{9}$/.test(String(currentUser.phone || '')) ? currentUser.phone : '';
+  document.getElementById('premiumPayButton').disabled = false;
+  openModal('premiumPaymentModal');
+}
+
+async function getPremiumMediaUrl(movie, vjIndex, action) {
+  const headers = await getPremiumAuthHeaders();
+  const base = PREMIUM_API_BASE.replace(/\/$/, '');
+  const response = await fetch(base + '/api/premium/media-link', {
+    method: 'POST', headers,
+    body: JSON.stringify({ movieId: String(movie.id), vjIndex, action })
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.mediaUrl) throw new Error(data.message || 'Could not prepare protected video.');
+  return base + data.mediaUrl;
+}
+
+async function ensurePremiumMovieAccess(movie, action, resume) {
+  if (!movie || !movie.premium) return true;
   try {
     const base = PREMIUM_API_BASE.replace(/\/$/, '');
-    const accessResponse = await fetch(base + '/api/premium/access', {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
+    const headers = await getPremiumAuthHeaders();
+    const response = await fetch(base + '/api/premium/access', {
+      method: 'POST', headers, cache: 'no-store',
       body: JSON.stringify({ movieId: String(movie.id), action })
     });
-    const access = await accessResponse.json().catch(() => ({}));
-
-    if (accessResponse.ok && access.allowed === true) return true;
-
-    // No verified entitlement: ask the server to create/reuse a payment request.
-    const paymentResponse = await fetch(base + '/api/payments/create', {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ movieId: String(movie.id), action })
-    });
-    const payment = await paymentResponse.json().catch(() => ({}));
-    if (!paymentResponse.ok) throw new Error(payment.message || 'Could not start payment');
-
-    if (payment.checkoutUrl && /^https:\/\//i.test(payment.checkoutUrl)) {
-      showToast('Complete payment to unlock ' + movie.title, 'info');
-      window.location.href = payment.checkoutUrl;
-      return false;
-    }
-    showToast(payment.message || 'Payment is required before accessing this movie.', 'warning');
+    const access = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(access.message || 'Could not verify premium access.');
+    if (access.allowed === true) return true;
+    openPremiumPayment(movie, action, resume);
     return false;
   } catch (error) {
-    console.error('Premium access verification failed:', error);
-    showToast('Could not verify payment. Please try again.', 'error');
+    showToast(error.message || 'Could not verify premium access. Please try again.', 'warning');
     return false;
   }
+}
+
+async function startPremiumPayment() {
+  if (premiumPaymentBusy || !pendingPremiumMovie) return;
+  const movie = pendingPremiumMovie;
+  const phone = document.getElementById('premiumPhoneInput').value.trim();
+  const status = document.getElementById('premiumPaymentStatus');
+  const button = document.getElementById('premiumPayButton');
+  if (!phone) { status.textContent = 'Enter your MTN or Airtel number first.'; return; }
+  premiumPaymentBusy = true;
+  button.disabled = true;
+  button.textContent = 'Sending payment request...';
+  status.textContent = 'Please wait while we contact MarzPay.';
+  try {
+    const headers = await getPremiumAuthHeaders();
+    const base = PREMIUM_API_BASE.replace(/\/$/, '');
+    const response = await fetch(base + '/api/premium/checkout', {
+      method: 'POST', headers,
+      body: JSON.stringify({ movieId: String(movie.id), phone })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.message || 'Could not start payment.');
+    if (data.alreadyPaid === true && data.accessGranted === true) {
+      status.textContent = 'This movie is already paid for.';
+    } else {
+      status.textContent = 'A Mobile Money prompt should arrive on ' + phone + '. Enter your PIN on your phone, not on this website. Waiting for confirmation...';
+      button.textContent = 'Waiting for Mobile Money...';
+      const paid = await pollPremiumPayment(data.reference);
+      if (!paid) throw new Error('Payment was not confirmed. If money was deducted, contact support with reference ' + data.reference);
+    }
+    closeModal('premiumPaymentModal');
+    showToast('Payment confirmed. Movie unlocked!', 'success');
+    const resume = pendingPremiumResume;
+    pendingPremiumMovie = null; pendingPremiumAction = null; pendingPremiumResume = null;
+    if (resume) await resume();
+  } catch (error) {
+    status.textContent = error.message || 'Payment could not be completed.';
+    button.disabled = false;
+    button.textContent = 'Try payment again';
+  } finally {
+    premiumPaymentBusy = false;
+  }
+}
+
+async function pollPremiumPayment(reference) {
+  const deadline = Date.now() + 180000;
+  const headers = await getPremiumAuthHeaders();
+  const base = PREMIUM_API_BASE.replace(/\/$/, '');
+  while (Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 4000));
+    const response = await fetch(base + '/api/premium/status?reference=' + encodeURIComponent(reference), {
+      method: 'GET', headers: { 'Authorization': headers.Authorization }, cache: 'no-store'
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.message || 'Unable to verify payment status.');
+    if (data.status === 'paid' && data.accessGranted === true) return true;
+    if (['failed', 'cancelled', 'expired'].includes(data.status)) throw new Error('Payment ' + data.status + '. No movie access was granted.');
+  }
+  throw new Error('Still waiting for payment confirmation. Close this message and try checking again shortly.');
+}
+
+function closePremiumPayment() {
+  if (premiumPaymentBusy) return showToast('Please wait for the payment request to finish.', 'info');
+  closeModal('premiumPaymentModal');
+  pendingPremiumMovie = null; pendingPremiumAction = null; pendingPremiumResume = null;
 }
 
 /* ============================================================
@@ -1783,11 +1878,15 @@ async function playMovie(movieId, vjIndex){
   }
   
   // Premium playback is denied unless the backend confirms a completed payment.
-  if (!(await ensurePremiumMovieAccess(m, 'watch'))) return;
+  if (!(await ensurePremiumMovieAccess(m, 'watch', () => playMovie(movieId, vjIndex)))) return;
 
   const vj = m.vjLinks[vjIndex];
-  const url = vj.playUrl || vj.url;
+  let url = vj.playUrl || vj.url;
   if (!url) return showToast('No video URL for this VJ version', 'error');
+  if (m.premium && !getYouTubeId(url)) {
+    try { url = await getPremiumMediaUrl(m, vjIndex, 'watch'); }
+    catch (error) { showToast(error.message || 'Protected playback is unavailable.', 'error'); return; }
+  }
 
   document.getElementById('vpTitle').textContent = m.title;
   document.getElementById('vpSub').textContent = (vj.vj || 'VJ') + ' · ' + (vj.quality || 'HD') + ' · ' + (vj.size || '');
@@ -1828,7 +1927,7 @@ async function playMovie(movieId, vjIndex){
       });
     }
     
-    currentVideoUrl = vj.downloadUrl || url;
+    currentVideoUrl = m.premium ? url : (vj.downloadUrl || url);
     currentVideoName = `${m.title} - ${vj.vj || 'VJ'}.mp4`;
     currentVideoMovieId = m.id;
     footer.style.display = '';
@@ -1898,14 +1997,20 @@ async function downloadCurrentVideo() {
     return showToast('Downloads are not available for YouTube links', 'warning');
   }
   const movie = STATE.movies.find(x => String(x.id) === String(currentVideoMovieId));
-  if (movie && !(await ensurePremiumMovieAccess(movie, 'download'))) return;
+  if (movie && !(await ensurePremiumMovieAccess(movie, 'download', () => downloadCurrentVideo()))) return;
   downloadVideo(currentVideoUrl, currentVideoName);
 }
 
 async function downloadFromCard(url, filename, movieId) {
   const movie = STATE.movies.find(x => String(x.id) === String(movieId));
   if (!movie) return showToast('Movie not found. Refresh and try again.', 'error');
-  if (!(await ensurePremiumMovieAccess(movie, 'download'))) return;
+  if (!(await ensurePremiumMovieAccess(movie, 'download', () => downloadFromCard(url, filename, movieId)))) return;
+  if (movie.premium) {
+    const vjIndex = (movie.vjLinks || []).findIndex(v => (v.playUrl || v.url) === url);
+    if (vjIndex < 0) return showToast('Movie version not found.', 'error');
+    try { url = await getPremiumMediaUrl(movie, vjIndex, 'download'); }
+    catch (error) { return showToast(error.message || 'Protected download is unavailable.', 'error'); }
+  }
   downloadVideo(url, filename);
 }
 
@@ -2723,7 +2828,7 @@ function adminSaveMovie(){
   const featured = document.getElementById('mvFeatured').checked;
   const trending = document.getElementById('mvTrending').checked;
   const premium = document.getElementById('mvPremium').checked;
-  const premiumPrice = Math.max(1, Math.floor(Number(document.getElementById('mvPremiumPrice').value) || 1000));
+  const premiumPrice = Math.max(500, Math.floor(Number(document.getElementById('mvPremiumPrice').value) || 1000));
   const vjLinks = getVjRows();
   const msg = document.getElementById('movieFormMsg');
 
